@@ -1,0 +1,51 @@
+/ ✨ 升级 2：全自动并行执行的 Google 新闻联网搜索
+    async function fetchLatestNews(stock) {
+        if (!stock) return;
+        const section = document.getElementById('aiNewsSection');
+        const loading = document.getElementById('aiNewsLoading');
+        const content = document.getElementById('aiNewsContent');
+        
+        section.classList.remove('hidden');
+        loading.classList.remove('hidden');
+        content.innerHTML = '';
+
+        const prompt = `使用 Google Search 搜索最新的马股新闻关于“${stock.name} (${stock.code})”。用纯文本段落总结基本面或行业事件，并判断情绪。
+        【重要排版指令】：只允许输出段落 <p>，严禁使用任何卡片(card)、多列或复杂定位的 Tailwind 类名。不要输出 markdown 围栏。`;
+
+        try {
+            const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }],
+                    tools: [{ google_search: {} }]
+                })
+            });
+            const json = await res.json();
+            let rawText = json.candidates?.[0]?.content?.parts?.[0]?.text || "<p>暂无最新情报。</p>";
+            
+            let sourcesHTML = "";
+            const attributions = json.candidates?.[0]?.groundingMetadata?.groundingAttributions;
+            if (attributions && attributions.length > 0) {
+                sourcesHTML = "<div class='mt-2 text-[10px] text-green-600 border-t border-green-800/30 pt-1'>来源: ";
+                const uniqueUrls = new Set();
+                attributions.forEach(a => {
+                    if (a.web?.uri && !uniqueUrls.has(a.web.uri)) {
+                        uniqueUrls.add(a.web.uri);
+                        sourcesHTML += `<a href="${a.web.uri}" target="_blank" class="underline mr-2 hover:text-green-400">${a.web.title || '连结'}</a>`;
+                    }
+                });
+                sourcesHTML += "</div>";
+            }
+            
+            let cleanHTML = rawText.replace(/\x60\x60\x60html/gi, '').replace(/\x60\x60\x60/g, '').trim();
+            // 终极防御：强力清除 AI 乱生成的布局与定位类名
+            cleanHTML = cleanHTML.replace(/\b(absolute|fixed|relative|flex|grid|h-\S+|w-\S+|top-\S+|left-\S+|right-\S+|bottom-\S+|inset-\S+)\b/g, '');
+            
+            content.innerHTML = cleanHTML + sourcesHTML;
+        } catch (e) {
+            content.innerHTML = "<p class='text-red-400'>搜寻引擎调用失败，请稍后再试。</p>";
+        } finally {
+            loading.classList.add('hidden');
+        }
+    }
